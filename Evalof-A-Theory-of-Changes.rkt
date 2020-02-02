@@ -36,19 +36,38 @@
   (tagged-list? exp 'Derive))
 
 (define (neg-merge lst1 lst2)
-  (append lst1 (map (lambda (x) (cons (if (equal? (car x) '+) '- '+) (cdr x))) lst2)))
+  (if (number? lst1)
+      (- lst1 lst2)
+      (append lst1 (map (lambda (x) (cons (if (equal? (car x) '+) '- '+) (cdr x))) lst2))))
 
+(define (join-arg lst)
+  (if (null? lst)
+      '()
+      (cond ((string? (car lst)) (cons (string-append (car lst) (cadr lst)) (join-arg (cddr lst))))
+            ((number? (car lst)) (cons (+ (car lst) (cadr lst)) (join-arg (cddr lst))))
+            (else
+             (if (and (not (null? (car lst))) (equal? (car (car lst)) 'list))
+                 (cons (cons 'list (cleaner (append (cdr (car lst)) (cdr (cadr lst))))) (join-arg (cddr lst)))
+                 (cons (cleaner (append (car lst) (cadr lst))) (join-arg (cddr lst))))))))
+
+(define (org-arg lst)
+  (if (null? lst)
+      '()
+      (cons (car lst) (org-arg (cddr lst)))))
+             
 (define (cleaner lst)
   (define (innerloop value pos rest prev)
     (cond ((null? rest) #f)
           ((and (equal? value (cadr (car rest))) (not (equal? pos (car (car rest))))) (cleaner (append prev (cdr rest))))
           (else (innerloop value pos (cdr rest) (cons (car rest) prev)))))
-  (if (null? lst)
-      '()
-      (let ((res (innerloop (cadr (car lst)) (car (car lst)) (cdr lst) '())))
-        (if res
-            res
-            (cons (car lst) (cleaner (cdr lst)))))))
+  (if (or (number? lst) (string? exp))
+      lst
+      (if (null? lst)
+          '()
+          (let ((res (innerloop (cadr (car lst)) (car (car lst)) (cdr lst) '())))
+            (if res
+                res
+                (cons (car lst) (cleaner (cdr lst))))))))
 
 (define primitive-procedures
   (list (list 'car car) 
@@ -68,7 +87,7 @@
         (list 'remainder remainder) 
         (list 'length  length)
         (list 'sqrt  sqrt)
-        (list 'list  list)
+        (list 'equal? equal?)
         (list 'symbol? symbol?)
         (list 'eq? eq?)
         (list 'cadr cadr)
@@ -84,6 +103,7 @@
 
 (define (eval exp env)
   (cond ((number? exp) exp)
+        ((string? exp) exp)
         ((boolean? exp) (eval-boolean exp env))
         ((void? exp) exp)
         ((symbol? exp) (lookup-variable exp env))
@@ -113,8 +133,8 @@
 (define (eval-application exp args env)
   (let ( (primitive-body (primitive? (car exp))))
     (cond (primitive-body (apply primitive-body args))
-          ((Derive? (car exp)) (cleaner (neg-merge (eval-application (cons (cadr (car exp)) (append (cadr exp) (caddr exp))) (list (append (car args) (cadr args))) env)
-                                                   (eval-application (cons (cadr (car exp)) (cadr exp)) (list (car args)) env))))
+          ((Derive? (car exp)) (cleaner (neg-merge (eval-application (cons (cadr (car exp)) (join-arg (cdr exp))) (join-arg args) env)
+                                                   (eval-application (cons (cadr (car exp)) (org-arg (cdr exp))) (org-arg args) env))))
           (else (let ((function-info (eval (car exp) env)))
                   (if (null? (cadr function-info))
                       'void
